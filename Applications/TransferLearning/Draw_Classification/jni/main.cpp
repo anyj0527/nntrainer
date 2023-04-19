@@ -301,7 +301,7 @@ int testModel(const char *data_path, const char *model) {
   ml_tensors_data_h in_data;
   void *raw_data;
   size_t data_size;
-  ml_tensor_dimension in_dim = {1, IMAGE_SIDE, IMAGE_SIDE, IMAGE_CHANNELS};
+  ml_tensor_dimension in_dim = {IMAGE_CHANNELS, IMAGE_SIDE, IMAGE_SIDE, 1};
 
   char pipeline[2048];
   snprintf(pipeline, sizeof(pipeline),
