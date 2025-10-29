@@ -103,7 +103,13 @@ public:
    * @brief run the CausalLM model
    */
   void run(const WSTR prompt, bool do_sample = false,
-           const WSTR system_prompt = "", const WSTR tail_prompt = "");
+           const WSTR system_prompt = "", const WSTR tail_prompt = "",
+           std::function<void(const std::string &)> token_callback = {});
+
+  /**
+   * @brief Stop the current run
+   */
+  inline void stop() { should_stop = true; }
 
 protected:
   /**
@@ -148,7 +154,8 @@ protected:
   virtual void
   registerOutputs(std::unique_ptr<tokenizers::Tokenizer> &tokenizer,
                   std::vector<unsigned int> ids, unsigned int pos,
-                  const std::vector<bool> &eos_list);
+                  const std::vector<bool> &eos_list,
+                  std::function<void(const std::string &)> token_callback = {});
 
   /**
    * @brief save kv cache
@@ -169,6 +176,7 @@ protected:
                                      unsigned int NUM_INPUT_IDS = 0);
 
   bool is_initialized = false; /**< Flag to check if the model is initialized */
+  bool should_stop = false;    /**< Flag to stop */
   ModelHandle model;
 
   /** internal buffer */

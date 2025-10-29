@@ -263,12 +263,15 @@ void CausalLM::save_weight(const std::string &weight_path) {
 };
 
 void CausalLM::run(const WSTR prompt, bool do_sample, const WSTR system_prompt,
-                   const WSTR tail_prompt) {
+                   const WSTR tail_prompt,
+                   std::function<void(const std::string &)> token_callback) {
 
   if (!is_initialized) {
     throw std::runtime_error("CausalLM model is not initialized. Please call "
                              "initialize() before run().");
   }
+
+  should_stop = false;
 
   output_list.clear();
   for (unsigned int b = 0; b < BATCH_SIZE; ++b) {
@@ -423,7 +426,7 @@ void CausalLM::run(const WSTR prompt, bool do_sample, const WSTR system_prompt,
     output[0], NUM_VOCAB, BATCH_SIZE, 1, ids_history, _len));
 
   if (init_len < INIT_SEQ_LEN)
-    registerOutputs(tokenizer, id_list, init_len, eos_list);
+    registerOutputs(tokenizer, id_list, init_len, eos_list, token_callback);
 
   auto finish_prefill = std::chrono::high_resolution_clock::now();
   auto prefill_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -446,6 +449,11 @@ void CausalLM::run(const WSTR prompt, bool do_sample, const WSTR system_prompt,
        token_generation_idx < input_len + 1 + NUM_TO_GENERATE;
        ++token_generation_idx) {
 
+    if (should_stop) {
+      free(input_sample);
+      break;
+    }
+
     auto output_interval =
       model->incremental_inference(BATCH_SIZE, input, label, input_len,
                                    token_generation_idx - 1 + global_token_len,
@@ -456,13 +464,15 @@ void CausalLM::run(const WSTR prompt, bool do_sample, const WSTR system_prompt,
         input_sample[static_cast<size_t>(b) * MAX_SEQ_LEN] =
           static_cast<float>(init_input[token_generation_idx - SYS_PROMP_LEN]);
       }
-      registerOutputs(tokenizer, ids_list, token_generation_idx, eos_list);
+      registerOutputs(tokenizer, ids_list, token_generation_idx, eos_list,
+                      token_callback);
     } else {
       for (unsigned int b = 0; b < BATCH_SIZE; ++b) {
         input_sample[static_cast<size_t>(b) * MAX_SEQ_LEN] =
           static_cast<float>(ids_list[b]);
       }
-      registerOutputs(tokenizer, ids_list, token_generation_idx, eos_list);
+      registerOutputs(tokenizer, ids_list, token_generation_idx, eos_list,
+                      token_callback);
     }
     ++generation_cnt;
 
@@ -731,7 +741,8 @@ void CausalLM::registerCustomLayers() {
 void CausalLM::registerOutputs(
   std::unique_ptr<tokenizers::Tokenizer> &tokenizer,
   std::vector<unsigned int> ids, unsigned int pos,
-  const std::vector<bool> &eos_list) {
+  const std::vector<bool> &eos_list,
+  std::function<void(const std::string &)> token_callback) {
 
   static const std::vector<char> puncts{',', '!', ':', ';', '?'};
   for (size_t b = 0; b < ids.size(); ++b) {
@@ -753,6 +764,10 @@ void CausalLM::registerOutputs(
 #else
         std::cout << decoded_str;
         std::cout.flush();
+
+        if (token_callback) {
+          token_callback(decoded_str);
+        }
 #endif
         output_list[b].append(decoded_str);
         pending_ids_.clear();
